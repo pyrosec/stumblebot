@@ -57,7 +57,11 @@ const associate = (v: any) => {
 const handleCommand = async (body, to) => {
   const tokens = body.split(/\s/g);
   let stumble = stumbleSessions[to];
-  if (tokens[0] === "/login") {
+  if (tokens[0] === "/set-proxy") {
+    stumble.proxyOptions = tokens[1];
+  } else if (tokens[0] === "/unset-proxy") {
+    delete stumble.proxyOptions;
+  } else if (tokens[0] === "/login") {
     stumble = (stumbleSessions[to] = Stumblechat.fromObject({}));
     stumble.proxyOptions = process.env.STUMBLEBOT_PROXY || null;
     await stumble.login({
@@ -71,11 +75,12 @@ const handleCommand = async (body, to) => {
   else if (tokens[0] === "/join") {
     const stumble = stumbleSessions[to];
     await stumble.chooseRoom({ room: tokens[1] });
+    delete stumble.proxyOptions;
     stumble
       .attach({
         handler(v) {
           if (v.stumble === 'sysmsg') send(v.text, to);
-          if (v.stumble === 'msg' && v.handle) send((users[v.handle] || v.handle) + ':: ' + v.text, to);
+          if ((v.stumble === 'msg' || v.stumble === 'pvtmsg') && v.handle) send((users[v.handle] || v.handle) + (v.stumble === 'pvtmsg' ? '::<private>' : '') + ':: ' + v.text, to);
 	  if (v.stumble === 'join') associate(v);
 	  if (v.stumble === 'joined') v.userlist.forEach((v) => associate(v));
         },
@@ -86,6 +91,8 @@ const handleCommand = async (body, to) => {
     send(Object.values(users).join('\n'), to);
   } else if (tokens[0] === "/raw") {
     stumble.send(body.substr(5), to);
+  } else if (tokens[0] === "/msg") {
+    stumble.send(JSON.stringify({ stumble: 'pvtmsg', handle: Object.entries(users).find(([ k, v ]: any) => v.split('|')[0] === tokens[1])[0], text: body.substr(tokens.slice(0, 2).join(' ').length) }));
   } else if (tokens[0][0] === '/') {
     send('invalid command!', to);
   } else {

@@ -5718,7 +5718,7 @@ strnum@^1.0.5:
 
 "stumblechat-client@https://github.com/pyrosec/stumblechat-client":
   version "0.1.0"
-  resolved "https://github.com/pyrosec/stumblechat-client#ffb993300a4727bcded48a2c73304925f36d4ed9"
+  resolved "https://github.com/pyrosec/stumblechat-client#21e036b815359024752c6ccbf934c6b5a4f08f1f"
   dependencies:
     change-case "4.1.2"
     cheerio "^1.0.0-rc.12"
