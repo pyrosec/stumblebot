@@ -47,22 +47,42 @@ const toJid = ({ host, username }) => {
   return username + "@" + host;
 };
 
-const stumbleSessions = {};
+let stumbleSessions = {};
 const users = {};
 
 const associate = (v: any) => {
-  users[v.handle] = v.username + (v.nick && ("|" + v.nick) || "");
+  users[v.handle] = v.username + '|' + v.room + (v.nick && ("|" + v.nick) || "");
 };
 
-const handleCommand = async (body, to) => {
+const STUMBLEBOT_DIRECTORY = path.join(process.env.HOME, '.stumblebot');
+const STUMBLEBOT_DATABASE_FILEPATH = path.join(STUMBLEBOT_DIRECTORY, 'db.json');
+
+const saveDatabase = async () => {
+  await mkdirp(path.join(process.env.HOME, '.stumblebot'));
+  await fs.writeFile(STUMBLEBOT_DATABASE_FILEPATH, JSON.stringify(Object.entries(stumbleSessions).map(([k, v]) => [ k, v.toObject() ])));
+};
+
+const loadDatabase = async () => {
+  await mkdirp(path.join(process.env.HOME, '.stumblebot'));
+  let db = {};
+  try {
+    db = Object.fromEntries(JSON.parse(await fs.readFile(STUMBLEBOT_DATABASE_FILEPATH, 'utf8')).map(([k, v]) => [ k, Stumblechat.fromObject(v) ]));
+  } catch (e) {}
+  stumbleSessions = db;
+};
+
+const handleCommand = async (body, _to) => {
   const tokens = body.split(/\s/g);
-  let stumble = stumbleSessions[to];
+  const split = _to.split('/');
+  const to = split.slice(0, Math.max(1, split.length - 1)).join('/');
+  let stumble: any = stumbleSessions[to];
   if (tokens[0] === "/set-proxy") {
     stumble.proxyOptions = tokens[1];
   } else if (tokens[0] === "/unset-proxy") {
     delete stumble.proxyOptions;
   } else if (tokens[0] === "/login") {
     stumble = (stumbleSessions[to] = Stumblechat.fromObject({}));
+    stumble.rooms = {};
     stumble.proxyOptions = process.env.STUMBLEBOT_PROXY || null;
     await stumble.login({
       username: tokens[1],
@@ -74,19 +94,39 @@ const handleCommand = async (body, to) => {
   }
   else if (tokens[0] === "/join") {
     const stumble = stumbleSessions[to];
-    await stumble.chooseRoom({ room: tokens[1] });
+    const room = tokens[1];
+    await stumble.chooseRoom({ room });
     delete stumble.proxyOptions;
-    stumble
+    await stumble
       .attach({
         handler(v) {
-          if (v.stumble === 'sysmsg') send(v.text, to);
-          if ((v.stumble === 'msg' || v.stumble === 'pvtmsg') && v.handle) send((users[v.handle] || v.handle) + (v.stumble === 'pvtmsg' ? '::<private>' : '') + ':: ' + v.text, to);
+          v.room = room;
+          if (v.stumble === 'sysmsg' || v.stumble === 'msg') {
+	 
+            const cacheKey = v.room + ':' + v.stumble + ':' + v.text;
+            if (!await redis.get(cacheKey)) {
+              await redis.set(cacheKey, '1', 'EX', '10');
+	      await redis.rpush(JSON.stringify(v));
+            }
+	  }
+	  if (v.stumble === 'pvtmsg') {
+            v.user = to;
+            await redis.rpush(JSON.stringify(v));
+	  }
 	  if (v.stumble === 'join') associate(v);
 	  if (v.stumble === 'joined') v.userlist.forEach((v) => associate(v));
         },
       })
       .catch((err) => console.error(err));
+    stumble.rooms[tokens[1]] = stumble._ws;
     return;
+  } else if (tokens[0] === "/select") {
+    const socket = stumble.rooms[tokens[1]];
+    if (!socket) send('room not found ' + tokens[1], to);
+    else {
+      stumble._ws = stumble.rooms[tokens[1]];
+      send('room selected ' + tokens[1], to);
+    }
   } else if (tokens[0] === "/users") {
     send(Object.values(users).join('\n'), to);
   } else if (tokens[0] === "/raw") {
@@ -101,6 +141,7 @@ const handleCommand = async (body, to) => {
 };
 
 export const run = (async () => {
+  await loadDatabase();
   xmpp.on("online", () => {
     console.log("online!");
     xmpp.send(xml("presence"));
@@ -114,5 +155,26 @@ export const run = (async () => {
     let body = stanza.getChild("body").children[0].trim();
     await handleCommand(body, to);
   });
-  await xmpp.start();
+  xmpp.start().catch((err) => console.error(err));
+  (async () => {
+    while (true)  {
+      try {
+        const _msg = await redis.lpop('stumble-in');
+        if (!_msg) await timeout(500);
+        const msg = JSON.parse(_msg);
+	else {
+          const usersMapped = Object.entries(users).filter(([ handle, tag ]) => tag.split('|')[0] === msg.to.split('@')[0]).find(([ handle, tag ]) => Object.keys(stumbleSessions[msg.from.split('@')[0] + '@' + process.env.STUMBLEBOT_XMPP_DOMAIN]).find((room) => tag.split('|')[1] === room));
+
+          const handle = 
+            if (i > 1) return r;
+	    else if (i === 0) r.room = v;
+	    else if (i === 1) r.username 
+          stumbleSessions[msg.from, msg.to
+	}
+      } catch (e) {
+        console.error(e);
+	await timeout(1000);
+      }
+  })().catch((err) => console.error(err));
+
 });
